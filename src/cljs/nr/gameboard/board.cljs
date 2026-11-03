@@ -1449,15 +1449,17 @@
                 {:on-click #(ws/ws-send! [:game/say {:gameid (current-gameid app-state)
                                                      :msg "/show-hand"}])}
                 [tr-span [:game_reveal-my-hand "Reveal My Hand"]]]
-               (let [me (if (= :corp (:side @game-state)) "Corp" "Runner")
-                     opp (if (= me "Corp") "Runner" "Corp")
-                     requests (set (:rematch-requests @current-game))
-                     opp-in? (some #(= opp (:side %)) (:players @current-game))]
-                 [:button#rematch
-                  {:disabled (or (not opp-in?) (contains? requests me))
-                   :on-click #(ws/ws-send! [:game/rematch {:gameid (current-gameid app-state)}])}
-                  (cond (not opp-in?) "✘ " (contains? requests opp) "✓ " :else "? ")
-                  [tr-span [:game_rematch "Rematch"]]])]])
+               ;; replays have no live lobby to rematch from
+               (when-not (= "local-replay" (:gameid @app-state))
+                 (let [me (if (= :corp (:side @game-state)) "Corp" "Runner")
+                       opp (if (= me "Corp") "Runner" "Corp")
+                       requests (set (:rematch-requests @current-game))
+                       opp-in? (some #(= opp (:side %)) (:players @current-game))]
+                   [:button#rematch
+                    {:disabled (or (not opp-in?) (contains? requests me))
+                     :on-click #(ws/ws-send! [:game/rematch {:gameid (current-gameid app-state)}])}
+                    (cond (not opp-in?) "✘ " (contains? requests opp) "✓ " :else "? ")
+                    [tr-span [:game_rematch "Rematch"]]]))]])
            [:button.win-right {:on-click #(reset! win-shown true) :type "button"} "✘"]])))))
 
 (defn- build-in-game-decklists

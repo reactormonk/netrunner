@@ -115,10 +115,12 @@
         (is (= identity (:identity deck)))))))
 
 (defn- rematch
-  [old & {:keys [found-decks] :or {found-decks #{}}}]
+  "`found-decks` maps a deck id that exists in the db to its identity's side."
+  [old & {:keys [found-decks] :or {found-decks {}}}]
   (with-redefs [lobby/find-deck-for-user (fn [_db deck-id _user]
-                                           (when (found-decks deck-id) {:_id deck-id :name "fresh"}))
-                lobby/process-deck (fn [deck] (assoc deck :identity {:title "id"}))
+                                           (when-let [side (found-decks deck-id)]
+                                             {:_id deck-id :name "fresh" :side side}))
+                lobby/process-deck (fn [deck] (assoc deck :identity {:title "id" :side (:side deck)}))
                 lobby/valid-deck-for-lobby? (fn [_lobby deck] (not= "illegal" (:_id deck)))]
     (let [new-lobby (lobby/rematch-lobby nil old)]
       (lobby/leave-pool! (:pool new-lobby) (:gameid new-lobby))
@@ -131,7 +133,11 @@
    :spectators [{:uid "s" :user {:username "s"}}]
    :corp-spectators [{:uid "s" :user {:username "s"}}]
    :players [(player "Corp" {:_id "corp-deck" :name "stripped"})
-             (player "Runner" {:_id "runner-deck" :name "stripped"})]})
+             (player "Runner" {:_id "runner-deck" :name "stripped"})]
+   :original-players [(player "Corp" {:_id "corp-deck"})
+                      (player "Runner" {:_id "runner-deck"})]})
+
+(def ^:private both-decks {"corp-deck" "Corp" "runner-deck" "Runner"})
 
 (deftest rematch-lobby-test
   (testing "same players, sides, spectators and options in a fresh unstarted lobby"
@@ -155,18 +161,29 @@
       (is (nil? (:replay-timestamp r)))))
 
   (testing "reloads full decks; missing ones are left to pick again"
-    (let [r (rematch finished-game :found-decks #{"corp-deck"})]
+    (let [r (rematch finished-game :found-decks {"corp-deck" "Corp"})]
       (is (= "fresh" (get-in r [:players 0 :deck :name])))
       (is (nil? (get-in r [:players 1 :deck])))))
 
+  (testing "a player who rejoined mid-game (no :deck in :players) still gets their deck"
+    (let [r (rematch (assoc-in finished-game [:players 1] (player "Runner"))
+                     :found-decks both-decks)]
+      (is (= "runner-deck" (get-in r [:players 1 :deck :_id])))))
+
   (testing "decks that are no longer legal are left to pick again"
-    (let [old (assoc-in finished-game [:players 0 :deck :_id] "illegal")
-          r (rematch old :found-decks #{"illegal"})]
+    (let [old (assoc-in finished-game [:original-players 0 :deck :_id] "illegal")
+          r (rematch old :found-decks {"illegal" "Corp"})]
       (is (nil? (get-in r [:players 0 :deck])))))
+
+  (testing "after /swap-sides mid-game, decks of the other side are left to pick again"
+    (let [old (assoc finished-game :original-players [(player "Corp" {:_id "runner-deck"})
+                                                      (player "Runner" {:_id "corp-deck"})])
+          r (rematch old :found-decks both-decks)]
+      (is (every? (comp nil? :deck) (:players r)))))
 
   (testing "precon games keep their precon and skip the deck lookup"
     (let [r (rematch (assoc finished-game :format "system-gateway" :precon :beginner)
-                     :found-decks #{"corp-deck" "runner-deck"})]
+                     :found-decks both-decks)]
       (is (= :beginner (:precon r)))
       (is (every? (comp nil? :deck) (:players r))))))
 

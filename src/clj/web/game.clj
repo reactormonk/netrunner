@@ -306,6 +306,9 @@
        ;; the old lobby is gone once a rematch happened, so late clicks land here
        (not (and player state (:end-time @state) (= 2 (count players))))
        nil
+       ;; repeat click (e.g. a double click before the disabled state arrives)
+       (contains? (:rematch-requests lobby) (:side player))
+       nil
        (:block-game-creation @app-state/app-state)
        (ws/chsk-send! uid [:lobby/toast {:message :lobby_creation-paused
                                          :type "error"}])

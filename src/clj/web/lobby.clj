@@ -580,14 +580,18 @@
 
 (defn rematch-lobby
   "A fresh, unstarted lobby with the players, sides, spectators and options of the started
-  lobby `old`. Started games only keep a stripped deck, so decks are reloaded from the db;
-  missing or no longer legal decks are left for the player to pick again."
-  [db {:keys [players] :as old}]
-  (let [reload (fn [{:keys [deck user] :as p}]
-                 (let [d (when (and (constructed-game? old) (:_id deck))
-                           (some-> (find-deck-for-user db (:_id deck) user) process-deck))]
+  lobby `old`. Decks are reloaded from the db; missing, no longer legal or wrong-side decks
+  are left for the player to pick again."
+  [db {:keys [players original-players] :as old}]
+  (let [reload (fn [{:keys [uid user side] :as p}]
+                 ;; :original-players, not :players: rejoining (e.g. after a refresh) drops :deck from :players
+                 (let [deck-id (:_id (:deck (find-first #(= uid (:uid %)) original-players)))
+                       d (when (and (constructed-game? old) deck-id)
+                           (some-> (find-deck-for-user db deck-id user) process-deck))]
                    (cond-> (select-keys p [:uid :user :side])
-                     (and d (valid-deck-for-lobby? old d)) (assoc :deck d))))
+                     ;; /swap-sides mid-game leaves each player holding the other side's deck
+                     (and d (= side (get-in d [:identity :side])) (valid-deck-for-lobby? old d))
+                     (assoc :deck d))))
         new-players (mapv reload players)
         host (first new-players)]
     (-> (create-new-lobby {:uid (:uid host) :user (:user host)
